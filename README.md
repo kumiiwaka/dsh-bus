@@ -4,7 +4,7 @@
 
 ![dsh-bus-panel 群聊面板](docs/screenshot-panel.png)
 
-> 截图占位：把实际截图存成 `docs/screenshot-panel.png` 即可。
+> 侧边栏「群聊」入口 + 群面板（2026-11-01 实机截图）。
 
 ## 这是什么
 
@@ -113,6 +113,67 @@ node C:\Users\<you>\dsh-bus\packages\dsh-bus-panel\server.mjs
 
 打开 <http://127.0.0.1:8767>。换端口用 `$env:DSH_BUS_PANEL_PORT = "8768"`；换数据目录用 `$env:DSH_WINDOW_BUS_DIR = "..."`。
 
+## 装完怎么验证
+
+宿主半只在 DSH 启动时加载，所以**装完必须重启**。重启后按下面顺序点一遍：前四项肉眼可看，后两项顺手核一下磁盘。
+
+### 1. 入口在不在
+
+左侧栏顶部导航区、`New Session` 下面应该多出一行「**群聊**」。把侧边栏折叠成 56px 轨道，图标应该还在，右上角能叠一个未读小圆点。
+
+入口没出现，按这个顺序查：
+
+- profile 的 `dsh.profile.bundles` 里有没有 `dsh-bus-panel`，以及它是不是排在 `dsh-window-bus` **后面**（面板要用总线的服务）
+- profile 目录跑过 `pnpm install` 没有 —— `link:` 依赖不装一次等于没写
+- DSH 是不是真重启了：`client.js` 存盘会热换，但宿主半（`index.js` / `groups.js`）改了不重启不生效
+
+### 2. 群列表对不对
+
+群列表应该和 `groups/` 目录一致：活跃群在前，带成员数和最后消息时间；归档群（目录名带 `.archived-`）排在后面并标「已解散」，点进去只读。
+
+### 3. 消息流读得出来吗
+
+选一个群，右侧出消息流：广播是普通气泡，点名带「可回执」标记并显示被点的是谁。
+
+⚠️ 这里最容易误判：群消息的**唯一来源**是 `groups/<群名>/messages/<id>.json`。`messages.jsonl` 只是投递审计账本 —— 读它会把同一条消息读两遍，还会读到根本没进群的投递。读错了的表现是「消息重复」或者「面板消息数和群里对不上」。
+
+### 4. 发广播能不能落盘
+
+底部输入框发一条（`Enter` 发送，`Shift+Enter` 换行），然后核磁盘：
+
+```powershell
+Get-ChildItem "$env:USERPROFILE\.dsh\window-bus\groups\<群名>\messages" |
+  Sort-Object LastWriteTime | Select-Object -Last 1
+```
+
+再用 `bus_group_read` 拉一下这个群。两边都看到才算通；只在自己的界面上出现、磁盘里没有，那是前端自己渲染的假象。
+
+### 5. 点名（只有建群者能发）
+
+切到「点名」页签，选成员、写正文、发。三个阶段都能在磁盘上追到：
+
+| 阶段 | 落在哪 | 含义 |
+|---|---|---|
+| `enqueued` | `inbox/<成员>/<时间戳>-<id>.json` | 已进对方信箱，还没投出去 |
+| `delivered` | `messages.jsonl` 多一条投递事件 | 插件扫到并送出了 |
+| `processed` | 同一条 `msg_id` 的下一个事件 | 对方处理完了（带 `requires_ack` 的还要等 `bus_ack`） |
+
+发给不在群里的窗口、或者用非建群者身份发，应该直接被拒（HTTP 4xx），一个字节都不写盘。
+
+### 6. 往返一次
+
+点「返回会话」应该回到刚才那个对话；再点「群聊」，选中的群和滚动位置还在，未读角标在读过之后归零。
+
+### 已经实测过的边界（2026-11-01）
+
+列出来是因为这几条花过时间，看着像 bug 其实都是设计：
+
+- **未知路由 404 / 坏 Host 403** —— 面板路由只认本机同源请求，改 Host 头会被拒。
+- **归档群只读**：往 `.archived-` 群写返回 409。
+- **越界群名 400**：群名带路径分隔符或 `..` 直接拒。
+- **点名身份三道关**：`from` 必须是注册窗口、目标必须在该群成员表里、点名只有建群者能发。任何一道不过，写进 `inbox/` 也投不出去。
+- **鼠标点不动的控件**（比如「广播 / 点名」页签）：先 `Tab` 走到它再按空格，比鼠标点击可靠。
+
 ### 卸载
 
 从 profile 的 `dependencies` 和 `dsh.profile.bundles` 里删掉对应项，在 profile 目录重新 `pnpm install`，重启 DSH。总线数据留在 `~/.dsh/window-bus`，不会自动删。
@@ -220,7 +281,7 @@ dsh-bus/
 ├── .gitignore
 ├── pnpm-workspace.yaml
 ├── docs/
-│   └── screenshot-panel.png       # 占位图，替换成实际截图
+│   └── screenshot-panel.png       # 侧边栏面板实机截图
 └── packages/
     ├── dsh-window-bus/
     │   ├── index.js               # 宿主插件：11 个工具 + 扫描器
