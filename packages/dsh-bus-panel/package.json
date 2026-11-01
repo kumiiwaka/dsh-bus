@@ -1,0 +1,65 @@
+{
+  "name": "dsh-bus-panel",
+  "version": "0.1.0",
+  "description": "dsh-window-bus 的侧边栏群聊面板：群列表、消息流、广播 / 点名，另带一个零依赖的独立调试 Web UI。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./groups": "./groups.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "groups.js",
+    "client.js",
+    "server.mjs",
+    "public/",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "panel": "node server.mjs"
+  },
+  "license": "MIT",
+  "author": "kumiiwaka <kumiiwaka@users.noreply.github.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kumiiwaka/dsh-bus.git",
+    "directory": "packages/dsh-bus-panel"
+  },
+  "homepage": "https://github.com/kumiiwaka/dsh-bus#readme",
+  "bugs": {
+    "url": "https://github.com/kumiiwaka/dsh-bus/issues"
+  },
+  "keywords": [
+    "cordis",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "bus",
+    "panel",
+    "chat",
+    "groups",
+    "sidebar"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.5"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  }
+}

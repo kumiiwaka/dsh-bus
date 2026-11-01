@@ -1,0 +1,9 @@
+# dsh-bus-panel bundle patch
+#
+# 装进 profile 后，DSH 启动时把插件行 insert 进组合树。
+# 宿主半注册 /bus-panel 路由；浏览器半注册 main + sidebar.panellist。
+# 按需装进 profile：dependencies 加 link:，bundles 加 dsh-bus-panel。
+
+- insert:
+    - id: bus-panel
+      name: 'dsh-bus-panel'

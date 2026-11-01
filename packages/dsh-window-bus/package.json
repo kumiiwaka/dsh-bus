@@ -1,0 +1,48 @@
+{
+  "name": "dsh-window-bus",
+  "version": "0.5.0",
+  "description": "DSH 窗口总线：窗口之间互投消息、临时群聊、投递审计。底层用官方 sessionController.prompt 的 steer / queue 两种投递模式。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "author": "kumiiwaka <kumiiwaka@users.noreply.github.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kumiiwaka/dsh-bus.git",
+    "directory": "packages/dsh-window-bus"
+  },
+  "homepage": "https://github.com/kumiiwaka/dsh-bus#readme",
+  "bugs": {
+    "url": "https://github.com/kumiiwaka/dsh-bus/issues"
+  },
+  "keywords": [
+    "cordis",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "plugin",
+    "bus",
+    "message-bus",
+    "multi-agent",
+    "window"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.5"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

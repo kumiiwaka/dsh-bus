@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>群聊面板 · dsh-window-bus</title>
+<style>
+  :root {
+    --bg: #1a1d21;
+    --bg-deep: #16191d;
+    --panel: #20242a;
+    --panel-2: #232830;
+    --border: #2b3138;
+    --border-soft: #262b31;
+    --text: #e7e9ec;
+    --text-dim: #a8b0ba;
+    --muted: #7f8791;
+    --accent: #4c8dff;
+    --mention: #c98a3a;
+    --ok: #7fc08a;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC",
+          "Hiragino Sans GB", "Noto Sans CJK SC", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  #app {
+    display: grid;
+    grid-template-columns: 304px minmax(0, 1fr);
+    height: 100vh;
+  }
+
+  /* ── 左侧：群列表 ─────────────────────────────────────────────── */
+
+  #sidebar {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--bg-deep);
+    border-right: 1px solid var(--border-soft);
+  }
+
+  .side-head {
+    padding: 14px 14px 10px;
+    border-bottom: 1px solid var(--border-soft);
+    display: grid;
+    gap: 6px;
+  }
+
+  .side-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .side-title-row h1 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: .2px;
+  }
+
+  #refreshBtn {
+    font: inherit;
+    font-size: 11.5px;
+    color: var(--text-dim);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  #refreshBtn:hover { border-color: #3d4650; color: var(--text); }
+
+  .side-sub {
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .group-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .group-card {
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    width: 100%;
+    display: grid;
+    gap: 6px;
+    padding: 10px 11px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: border-color .12s, background .12s;
+  }
+  .group-card:hover { background: var(--panel-2); border-color: #3a424c; }
+  .group-card.selected {
+    border-color: var(--accent);
+    background: #212834;
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  .group-card.archived { opacity: .58; background: #1c1f23; }
+  .group-card.archived:hover { opacity: .8; }
+  .group-card.archived.selected { opacity: .9; }
+
+  .group-card-top {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .group-name {
+    font-weight: 600;
+    font-size: 13.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .tag {
+    flex: none;
+    font-size: 10px;
+    line-height: 1.5;
+    padding: 0 5px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .tag-archived { border-color: #3a414a; background: #22262b; color: #9aa2ad; }
+
+  .group-note {
+    font-size: 12px;
+    color: var(--text-dim);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+
+  .group-members {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .member {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: #b8c0ca;
+    background: #262b32;
+    border: 1px solid #303740;
+    border-radius: 999px;
+    padding: 0 7px;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .member.creator {
+    color: #e8d5a8;
+    background: #302b1f;
+    border-color: #4a4230;
+  }
+  .member-empty { color: var(--muted); background: transparent; border-style: dashed; }
+
+  .creator-badge {
+    font-size: 9.5px;
+    line-height: 1.4;
+    color: #d9b86c;
+    border-left: 1px solid #5a4e33;
+    padding-left: 4px;
+  }
+
+  .group-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .group-foot span:last-child { text-align: right; }
+
+  /* ── 中间：消息流 ─────────────────────────────────────────────── */
+
+  #main {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    min-height: 0;
+    min-width: 0;
+    background: var(--bg);
+  }
+
+  .group-header {
+    padding: 12px 20px 10px;
+    border-bottom: 1px solid var(--border-soft);
+    display: grid;
+    gap: 3px;
+  }
+
+  .header-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .header-top h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .state-tag {
+    flex: none;
+    font-size: 10.5px;
+    padding: 0 6px;
+    border-radius: 4px;
+    border: 1px solid;
+  }
+  .state-tag.is-live { color: var(--ok); border-color: #2f4a35; background: #1e2a21; }
+  .state-tag.is-archived { color: #9aa2ad; border-color: #3a414a; background: #22262b; }
+
+  .header-note { font-size: 12.5px; color: var(--text-dim); overflow-wrap: anywhere; }
+
+  .header-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+  .meta-chip {
+    font-size: 10.5px;
+    color: var(--muted);
+    background: #20252b;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0 7px;
+  }
+
+  .message-list {
+    min-height: 0;
+    overflow-y: auto;
+    padding: 16px 20px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .msg {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-width: 76%;
+    min-width: 0;
+  }
+  .msg.own { align-self: flex-end; align-items: flex-end; }
+
+  .msg-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--muted);
+    padding: 0 2px;
+  }
+  .msg-from { font-weight: 600; color: #c2c9d2; }
+  .msg.own .msg-from { color: #9dc2ff; }
+  .msg-time { font-variant-numeric: tabular-nums; }
+  .msg-to { color: #c79a52; }
+
+  .badge {
+    font-size: 9.5px;
+    line-height: 1.6;
+    padding: 0 5px;
+    border-radius: 4px;
+    border: 1px solid;
+  }
+  .badge-mention { color: #d8a45c; border-color: #5a4526; background: #2e2719; }
+  .badge-ack { color: #8fa0b5; border-color: #37404b; background: #242a31; }
+
+  .msg-bubble {
+    background: var(--panel-2);
+    border: 1px solid #2c323a;
+    border-radius: 10px;
+    padding: 7px 11px;
+    min-width: 0;
+  }
+  .msg.own .msg-bubble { background: #24354f; border-color: #35507a; }
+  .msg.mention .msg-bubble {
+    border-left: 3px solid var(--mention);
+    border-top-left-radius: 4px;
+    border-bottom-left-radius: 4px;
+  }
+
+  .msg-text {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .loading { color: var(--muted); font-size: 12.5px; padding: 4px 2px; }
+
+  /* ── 底部：输入框 ─────────────────────────────────────────────── */
+
+  .composer {
+    border-top: 1px solid var(--border-soft);
+    background: #191c20;
+    padding: 10px 20px 14px;
+    display: grid;
+    gap: 4px;
+  }
+
+  .composer-form {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+  }
+
+  /* ── 发送方式：广播 / 点名 ─────────────────────────────────────── */
+
+  .composer-modes {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 22px;
+  }
+
+  .mode-btn {
+    font: inherit;
+    font-size: 11.5px;
+    line-height: 1.7;
+    color: var(--text-dim);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0 10px;
+    cursor: pointer;
+  }
+  .mode-btn:hover:not(:disabled) { border-color: #3d4650; color: var(--text); }
+  .mode-btn.is-on { color: #e8d5a8; background: #302b1f; border-color: #4a4230; font-weight: 600; }
+  .mode-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  .mode-note { font-size: 11px; color: var(--muted); }
+  .mode-note.is-warn { color: #d99a9a; }
+
+  .mention-picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 9px;
+    background: #1d2126;
+    border: 1px solid #2b3138;
+    border-radius: 9px;
+  }
+  .mention-picker[hidden] { display: none; }
+
+  .picker-label { flex: none; font-size: 11.5px; color: var(--muted); }
+  .picker-members { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; min-width: 0; }
+
+  .pick-chip {
+    font: inherit;
+    font-size: 11.5px;
+    color: #b8c0ca;
+    background: #262b32;
+    border: 1px solid #303740;
+    border-radius: 999px;
+    padding: 0 9px;
+    cursor: pointer;
+  }
+  .pick-chip:hover:not(:disabled) { border-color: #46505c; }
+  .pick-chip.is-on { color: #2a1f12; background: #d9a45c; border-color: #e3b673; font-weight: 600; }
+  .pick-chip:disabled { opacity: .42; cursor: not-allowed; text-decoration: line-through; }
+
+  .picker-count { flex: none; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  #composerInput {
+    flex: 1;
+    min-height: 38px;
+    max-height: 160px;
+    resize: none;
+    font: inherit;
+    line-height: 1.55;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid #2e353d;
+    border-radius: 9px;
+    padding: 8px 11px;
+    outline: none;
+    transition: border-color .12s;
+  }
+  #composerInput:focus { border-color: var(--accent); }
+  #composerInput:disabled { opacity: .5; cursor: not-allowed; }
+  #composerInput::placeholder { color: #6b737d; }
+
+  #sendBtn {
+    flex: none;
+    font: inherit;
+    font-size: 13px;
+    color: #fff;
+    background: #2f62bd;
+    border: 1px solid #3f74cf;
+    border-radius: 9px;
+    padding: 8px 18px;
+    cursor: pointer;
+  }
+  #sendBtn:hover:not(:disabled) { background: #3b74d6; }
+  #sendBtn:disabled { opacity: .45; cursor: not-allowed; }
+
+  .composer-hint {
+    min-height: 16px;
+    font-size: 11.5px;
+    color: #d99a9a;
+  }
+  .composer-hint.is-ok { color: #8fc79a; }
+
+  /* ── 空状态 ───────────────────────────────────────────────────── */
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    padding: 36px 20px;
+    line-height: 1.8;
+  }
+  .empty-state code {
+    font-family: ui-monospace, Consolas, "Cascadia Mono", monospace;
+    font-size: 12px;
+    color: #c8d0da;
+    background: #232830;
+    border: 1px solid #2f353d;
+    border-radius: 4px;
+    padding: 0 5px;
+  }
+  .empty-state .empty-title { color: #b9c1cb; }
+
+  /* ── 滚动条 ───────────────────────────────────────────────────── */
+
+  .group-list::-webkit-scrollbar,
+  .message-list::-webkit-scrollbar { width: 10px; }
+  .group-list::-webkit-scrollbar-thumb,
+  .message-list::-webkit-scrollbar-thumb {
+    background: #2e353d;
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  .group-list::-webkit-scrollbar-thumb:hover,
+  .message-list::-webkit-scrollbar-thumb:hover { background: #3a424c; background-clip: content-box; }
+
+  @media (max-width: 860px) {
+    #app { grid-template-columns: 244px minmax(0, 1fr); }
+    .msg { max-width: 88%; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="side-head">
+      <div class="side-title-row">
+        <h1>群聊面板</h1>
+        <button id="refreshBtn" type="button">刷新</button>
+      </div>
+      <div class="side-sub" id="rootPath" title="">数据目录加载中…</div>
+    </div>
+    <div id="groupList" class="group-list" aria-live="polite"></div>
+  </aside>
+
+  <main id="main">
+    <header class="group-header">
+      <div class="header-top">
+        <h2 id="currentGroupName">还没选群</h2>
+        <span id="currentGroupState" class="state-tag" hidden></span>
+      </div>
+      <div id="currentGroupNote" class="header-note"></div>
+      <div id="currentGroupMeta" class="header-meta"></div>
+    </header>
+
+    <div id="messageList" class="message-list" aria-live="polite"></div>
+
+    <div class="composer">
+      <div class="composer-modes">
+        <button id="modeBroadcast" class="mode-btn is-on" type="button">广播</button>
+        <button id="modeMention" class="mode-btn" type="button" disabled>点名</button>
+        <span id="modeNote" class="mode-note"></span>
+      </div>
+      <div id="mentionPicker" class="mention-picker" hidden>
+        <span class="picker-label">点名给：</span>
+        <div id="mentionMembers" class="picker-members"></div>
+        <span id="mentionCount" class="picker-count"></span>
+      </div>
+      <form id="composerForm" class="composer-form">
+        <textarea id="composerInput" rows="1" autocomplete="off" spellcheck="false"
+          placeholder="发到这个群…（Enter 发送，Shift+Enter 换行）"></textarea>
+        <button id="sendBtn" type="submit">发送</button>
+      </form>
+      <div id="composerHint" class="composer-hint"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+(() => {
+  'use strict'
+
+  const POLL_MS = 3000
+  const SELF_NAME = '用户'
+  const MESSAGE_LIMIT = 100
+
+  const state = {
+    groups: [],
+    currentId: null,
+    group: null,
+    messages: [],
+    groupsSig: '',
+    messagesSig: '',
+    polling: false,
+    /** 发送方式：false=广播（用户），true=点名（以建群者身份）。 */
+    mention: false,
+    /** 点名选中的人（Set<string>）。 */
+    mentionTo: new Set(),
+    /** 记录选择属于哪个群：换群就清空。 */
+    mentionGroup: null
+  }
+
+  const $ = (id) => document.getElementById(id)
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag)
+    if (className) node.className = className
+    if (text !== undefined) node.textContent = text
+    return node
+  }
+
+  function pad(n) {
+    return String(n).padStart(2, '0')
+  }
+
+  /** 时间：今天只给 HH:MM，跨天补 MM-DD。 */
+  function formatTime(iso) {
+    const date = new Date(iso)
+    if (Number.isNaN(date.getTime())) return ''
+    const now = new Date()
+    const clock = pad(date.getHours()) + ':' + pad(date.getMinutes())
+    const sameDay = date.getFullYear() === now.getFullYear()
+      && date.getMonth() === now.getMonth()
+      && date.getDate() === now.getDate()
+    return sameDay ? clock : pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + ' ' + clock
+  }
+
+  async function api(url, options) {
+    const response = await fetch(url, options)
+    let data = null
+    try {
+      data = await response.json()
+    } catch {
+      data = null
+    }
+    if (!response.ok || data === null || data.ok !== true) {
+      throw new Error((data && data.error) || ('请求失败（HTTP ' + response.status + '）'))
+    }
+    return data
+  }
+
+  // ── 群列表 ──────────────────────────────────────────────────────
+
+  function emptyState(...children) {
+    const box = el('div', 'empty-state')
+    for (const child of children) box.append(child)
+    return box
+  }
+
+  function lineWithCode(prefix, code) {
+    const row = el('div')
+    row.append(document.createTextNode(prefix))
+    row.append(el('code', '', code))
+    return row
+  }
+
+  function renderGroups() {
+    const list = $('groupList')
+    list.replaceChildren()
+
+    if (state.groups.length === 0) {
+      list.append(emptyState(
+        el('div', 'empty-title', '还没有群。'),
+        lineWithCode('建群：让某个窗口调 ', 'bus_group_create')
+      ))
+      return
+    }
+
+    for (const group of state.groups) list.append(renderGroupCard(group))
+  }
+
+  /**
+   * 一张群卡：群名（.group-name）、要完成的内容（.group-note = meta.note）、
+   * 成员（.member，建群者带 .creator + .creator-badge）、消息数、最后活跃时间。
+   */
+  function renderGroupCard(group) {
+    const card = el('button', 'group-card')
+    card.type = 'button'
+    card.dataset.groupId = group.id
+    card.dataset.role = 'group-card'
+    if (group.archived) card.classList.add('archived')
+    if (group.id === state.currentId) card.classList.add('selected')
+    card.addEventListener('click', () => { selectGroup(group.id) })
+
+    const top = el('div', 'group-card-top')
+    const name = el('div', 'group-name', group.name)
+    name.dataset.role = 'group-name'
+    name.title = group.name
+    top.append(name)
+    if (group.archived) top.append(el('span', 'tag tag-archived', '已解散'))
+    card.append(top)
+
+    const note = el('div', 'group-note', group.note ? group.note : '（没写要完成的内容）')
+    note.dataset.role = 'group-note'
+    note.title = group.note || ''
+    card.append(note)
+
+    const members = el('div', 'group-members')
+    members.dataset.role = 'group-members'
+    const names = Array.isArray(group.members) ? group.members.slice() : []
+    if (group.creator && !names.includes(group.creator)) names.unshift(group.creator)
+
+    if (names.length === 0) {
+      members.append(el('span', 'member member-empty', '（没有成员记录）'))
+    } else {
+      for (const member of names) {
+        const chip = el('span', 'member', member)
+        chip.dataset.role = 'member'
+        if (member === group.creator) {
+          chip.classList.add('creator')
+          chip.title = '建群者'
+          const badge = el('span', 'creator-badge', '建群者')
+          badge.dataset.role = 'creator-badge'
+          chip.append(badge)
+        }
+        members.append(chip)
+      }
+    }
+    card.append(members)
+
+    const foot = el('div', 'group-foot')
+    foot.append(el('span', '', group.messageCount + ' 条消息'))
+    foot.append(el('span', '', group.lastMessageAt ? '最后 ' + formatTime(group.lastMessageAt) : '还没有消息'))
+    card.append(foot)
+
+    return card
+  }
+
+  // ── 消息流 ──────────────────────────────────────────────────────
+
+  function renderMessages(options = {}) {
+    const list = $('messageList')
+    const previousTop = list.scrollTop
+    const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 90
+
+    list.replaceChildren()
+
+    if (state.currentId === null) {
+      list.append(emptyState(el('div', 'empty-title', '左边选一个群')))
+      return
+    }
+
+    if (state.messages.length === 0) {
+      list.append(emptyState(
+        el('div', 'empty-title', '这个群还没有消息。'),
+        el('div', '', '发一条试试 —— 广播只落盘，不推给任何人。')
+      ))
+      return
+    }
+
+    for (const message of state.messages) list.append(renderMessage(message))
+
+    if (options.bottom === true || nearBottom) {
+      list.scrollTop = list.scrollHeight
+    } else {
+      list.scrollTop = previousTop
+    }
+  }
+
+  /** 一条消息：广播（默认气泡）/ 点名（左边竖线 + 「点名」标签）区分；自己发的靠右。 */
+  function renderMessage(message) {
+    const own = message.from_session === 'human' || message.from === SELF_NAME
+    const mention = message.kind === 'mention'
+
+    const row = el('div', 'msg' + (own ? ' own' : '') + (mention ? ' mention' : ''))
+    row.dataset.msgId = message.id
+    row.dataset.kind = mention ? 'mention' : 'broadcast'
+
+    const head = el('div', 'msg-head')
+    head.append(el('span', 'msg-from', message.from ? message.from : '（未知）'))
+    if (mention) {
+      head.append(el('span', 'badge badge-mention', '点名'))
+      const to = Array.isArray(message.to) ? message.to.filter((name) => typeof name === 'string' && name) : []
+      if (to.length > 0) head.append(el('span', 'msg-to', '→ ' + to.join('、')))
+    }
+    if (message.requires_ack === true) head.append(el('span', 'badge badge-ack', '需回执'))
+    head.append(el('span', 'msg-time', formatTime(message.created_at)))
+    row.append(head)
+
+    const bubble = el('div', 'msg-bubble')
+    bubble.append(el('p', 'msg-text', String(message.text === undefined || message.text === null ? '' : message.text)))
+    row.append(bubble)
+
+    return row
+  }
+
+  // ── 顶部群信息 ──────────────────────────────────────────────────
+
+  function updateHeader(group) {
+    $('currentGroupName').textContent = group ? group.name : '还没选群'
+
+    const tag = $('currentGroupState')
+    if (group === null) {
+      tag.hidden = true
+    } else {
+      tag.hidden = false
+      tag.textContent = group.archived ? '已解散 · 只读' : '可发送'
+      tag.className = 'state-tag ' + (group.archived ? 'is-archived' : 'is-live')
+    }
+
+    $('currentGroupNote').textContent = group ? (group.note || '（没写要完成的内容）') : ''
+
+    const meta = $('currentGroupMeta')
+    meta.replaceChildren()
+    if (group !== null) {
+      const members = Array.isArray(group.members) ? group.members.length : 0
+      meta.append(el('span', 'meta-chip', members + ' 人'))
+      if (group.creator) meta.append(el('span', 'meta-chip', '建群者 ' + group.creator))
+      if (group.mention && group.mention.allowed === true) {
+        meta.append(el('span', 'meta-chip', '可点名 · 以 ' + group.mention.as + ' 身份发'))
+      } else if (group.archived !== true) {
+        meta.append(el('span', 'meta-chip', '点名不可用'))
+      }
+      meta.append(el('span', 'meta-chip', group.messageCount + ' 条消息'))
+      meta.append(el('span', 'meta-chip', '每 3 秒自动刷新'))
+    }
+  }
+
+  // ── 输入框状态 ──────────────────────────────────────────────────
+
+  /** 点名入口能不能用：服务端已经核过「建群者身份可信」，这里只把结果翻成人话。 */
+  function mentionState() {
+    const group = state.group
+    const empty = { allowed: false, reason: '', as: '', candidates: [] }
+    if (group === null) return empty
+
+    const info = group.mention ?? {}
+    const candidates = Array.isArray(info.candidates) ? info.candidates : []
+    if (group.archived === true) {
+      return { ...empty, candidates, reason: '群已解散，归档只读，点名发不出去' }
+    }
+    if (info.allowed !== true) {
+      return { ...empty, candidates, reason: info.reason || '这个群没有可信的建群者身份，点名发不出去' }
+    }
+    if (!candidates.some((candidate) => candidate.active === true)) {
+      return { ...empty, candidates, reason: '群里除了建群者没有活跃成员，没人可点' }
+    }
+    return { allowed: true, reason: '', as: info.as, candidates }
+  }
+
+  function refreshComposer() {
+    const group = state.group
+    const archived = group !== null && group.archived === true
+    const info = mentionState()
+
+    // 不能点名（群变了 / 建群者身份不可信）就退回广播
+    if (!info.allowed) state.mention = false
+    if (state.mentionGroup !== state.currentId) {
+      state.mentionGroup = state.currentId
+      state.mentionTo.clear()
+    }
+    for (const name of [...state.mentionTo]) {
+      if (!info.candidates.some((candidate) => candidate.name === name && candidate.active === true)) {
+        state.mentionTo.delete(name)
+      }
+    }
+
+    const broadcastBtn = $('modeBroadcast')
+    const mentionBtn = $('modeMention')
+    broadcastBtn.classList.toggle('is-on', state.mention !== true)
+    mentionBtn.classList.toggle('is-on', state.mention === true)
+    mentionBtn.disabled = !info.allowed
+    mentionBtn.title = info.allowed
+      ? `以建群者「${info.as}」的身份点名（插件只允许建群者点名）`
+      : info.reason
+    mentionBtn.textContent = info.allowed ? '点名' : '点名（不可用）'
+
+    const note = $('modeNote')
+    note.textContent = group === null
+      ? ''
+      : info.allowed
+        ? `点名以建群者「${info.as}」的身份发出（插件只允许建群者点名）`
+        : info.reason
+    note.classList.toggle('is-warn', group !== null && !info.allowed)
+
+    const picker = $('mentionPicker')
+    picker.hidden = state.mention !== true
+
+    const box = $('mentionMembers')
+    box.replaceChildren()
+    if (state.mention === true) {
+      for (const candidate of info.candidates) {
+        const chip = el('button', 'pick-chip' + (state.mentionTo.has(candidate.name) ? ' is-on' : ''), candidate.name)
+        chip.type = 'button'
+        chip.disabled = candidate.active !== true
+        if (candidate.active !== true) chip.title = '没注册或 inactive，点了也没人收'
+        chip.addEventListener('click', () => {
+          if (state.mentionTo.has(candidate.name)) state.mentionTo.delete(candidate.name)
+          else state.mentionTo.add(candidate.name)
+          refreshComposer()
+        })
+        box.append(chip)
+      }
+      if (info.candidates.length === 0) box.append(el('span', 'picker-count', '（没有别的成员）'))
+      $('mentionCount').textContent = '已选 ' + state.mentionTo.size + ' 人'
+    } else {
+      $('mentionCount').textContent = ''
+    }
+
+    const input = $('composerInput')
+    const enabled = group !== null && !archived
+    const sendBtn = $('sendBtn')
+
+    input.disabled = !enabled
+    input.placeholder = archived
+      ? '这个群已解散，归档只读'
+      : state.mention === true
+        ? '要对他们说什么？（Enter 发送，Shift+Enter 换行）'
+        : '发到这个群…（Enter 发送，Shift+Enter 换行）'
+
+    sendBtn.disabled = !enabled || (state.mention === true && state.mentionTo.size === 0)
+    sendBtn.textContent = state.mention === true
+      ? (state.mentionTo.size > 0 ? '点名 ' + state.mentionTo.size + ' 人' : '点名')
+      : '发送'
+  }
+
+  function setHint(text, ok) {
+    const node = $('composerHint')
+    node.textContent = text || ''
+    node.classList.toggle('is-ok', ok === true)
+  }
+
+  function autoGrow() {
+    const input = $('composerInput')
+    input.style.height = 'auto'
+    input.style.height = Math.min(input.scrollHeight, 160) + 'px'
+  }
+
+  // ── 数据加载 ────────────────────────────────────────────────────
+
+  async function loadGroups(options = {}) {
+    const data = await api('/api/groups')
+
+    const root = $('rootPath')
+    root.textContent = data.root
+    root.title = data.root
+
+    const signature = data.groups.map((group) => JSON.stringify([
+      group.id, group.name, group.archived, group.note, group.creator,
+      group.members, group.messageCount, group.lastMessageAt
+    ])).join('\n')
+
+    if (options.force !== true && signature === state.groupsSig) return data
+
+    state.groups = data.groups
+    state.groupsSig = signature
+
+    if (state.currentId !== null && !data.groups.some((group) => group.id === state.currentId)) {
+      state.currentId = null
+      state.group = null
+      state.messages = []
+      state.messagesSig = ''
+      updateHeader(null)
+      refreshComposer()
+    }
+
+    if (state.currentId === null && data.groups.length > 0) {
+      await selectGroup(data.groups[0].id)
+      return data
+    }
+
+    renderGroups()
+    return data
+  }
+
+  async function loadMessages(groupId, options = {}) {
+    const data = await api('/api/messages?group=' + encodeURIComponent(groupId) + '&limit=' + MESSAGE_LIMIT)
+    if (state.currentId !== groupId) return
+
+    state.group = data.group
+    updateHeader(data.group)
+    refreshComposer()
+
+    const signature = data.messages.map((message) => message.id).join(',')
+    if (options.force !== true && signature === state.messagesSig) return
+
+    state.messagesSig = signature
+    state.messages = data.messages.slice().reverse() // 接口是新→旧，页面按旧→新往下排
+    renderMessages({ bottom: options.bottom === true })
+  }
+
+  async function selectGroup(groupId) {
+    if (groupId === state.currentId) return
+
+    state.currentId = groupId
+    state.group = null
+    state.messages = []
+    state.messagesSig = ''
+    setHint('')
+    renderGroups()
+
+    const list = $('messageList')
+    list.replaceChildren(el('div', 'loading', '加载中…'))
+
+    try {
+      await loadMessages(groupId, { force: true, bottom: true })
+    } catch (error) {
+      list.replaceChildren(emptyState(el('div', 'empty-title', '加载失败：' + error.message)))
+    }
+  }
+
+  async function sendMessage() {
+    const input = $('composerInput')
+    const text = input.value.trim()
+
+    if (text === '' || state.currentId === null) return
+    if (state.group !== null && state.group.archived === true) return
+
+    const mention = state.mention === true
+    const to = [...state.mentionTo]
+    if (mention && to.length === 0) {
+      setHint('点名至少要选一个成员')
+      return
+    }
+
+    const groupId = state.currentId
+    $('sendBtn').disabled = true
+    setHint('')
+
+    try {
+      const data = await api('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mention ? { group: groupId, text, to } : { group: groupId, text })
+      })
+      input.value = ''
+      autoGrow()
+      if (mention) {
+        const pushed = Array.isArray(data.pushed) ? data.pushed : []
+        const shortId = String(data.message?.id ?? '').slice(0, 8)
+        setHint(pushed.length > 0
+          ? `已点名 ${pushed.join('、')} · 已入信箱等回执（id=${shortId}）`
+          : '点名记进群了，但名单里只有建群者自己，没往外推', true)
+        state.mentionTo.clear()
+      }
+      await Promise.all([
+        loadMessages(groupId, { force: true, bottom: true }),
+        loadGroups({ force: true })
+      ])
+    } catch (error) {
+      setHint(error.message)
+    } finally {
+      refreshComposer()
+      input.focus()
+    }
+  }
+
+  // ── 轮询（每 3 秒；切群时 selectGroup 立即拉一次） ──────────────
+
+  async function poll() {
+    if (state.polling) return
+    state.polling = true
+    try {
+      await loadGroups()
+      if (state.currentId !== null) {
+        await loadMessages(state.currentId)
+      }
+    } catch {
+      // 轮询失败不打断页面：下一轮再试，别弹一堆错
+    } finally {
+      state.polling = false
+    }
+  }
+
+  // ── 事件绑定 ────────────────────────────────────────────────────
+
+  $('modeBroadcast').addEventListener('click', () => {
+    state.mention = false
+    state.mentionTo.clear()
+    setHint('')
+    refreshComposer()
+    $('composerInput').focus()
+  })
+
+  $('modeMention').addEventListener('click', () => {
+    const info = mentionState()
+    if (!info.allowed) {
+      setHint(info.reason || '这个群现在不能点名')
+      return
+    }
+    state.mention = state.mention !== true
+    if (state.mention !== true) state.mentionTo.clear()
+    setHint('')
+    refreshComposer()
+    $('composerInput').focus()
+  })
+
+  $('composerForm').addEventListener('submit', (event) => {
+    event.preventDefault()
+    sendMessage()
+  })
+
+  $('composerInput').addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || event.shiftKey) return
+    if (event.isComposing || event.keyCode === 229) return // 中文输入法选词中，别抢 Enter
+    event.preventDefault()
+    sendMessage()
+  })
+
+  $('composerInput').addEventListener('input', autoGrow)
+
+  $('refreshBtn').addEventListener('click', async () => {
+    try {
+      await loadGroups({ force: true })
+      if (state.currentId !== null) await loadMessages(state.currentId, { force: true })
+    } catch (error) {
+      setHint(error.message)
+    }
+  })
+
+  window.addEventListener('beforeunload', () => {})
+
+  // ── 启动 ────────────────────────────────────────────────────────
+
+  async function boot() {
+    try {
+      await loadGroups({ force: true })
+    } catch (error) {
+      $('groupList').replaceChildren(emptyState(
+        el('div', 'empty-title', '加载失败：' + error.message),
+        el('div', '', '服务起了吗？在 dsh-bus-panel 目录跑 node server.mjs')
+      ))
+      return
+    }
+    if (state.currentId === null) {
+      renderMessages()
+      updateHeader(null)
+      refreshComposer()
+    }
+  }
+
+  boot()
+  setInterval(poll, POLL_MS)
+})()
+</script>
+</body>
+</html>
