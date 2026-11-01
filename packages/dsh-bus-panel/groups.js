@@ -368,7 +368,7 @@ function withSeen(group, state) {
 /** 读未读游标；坏文件/坏字段都当空档案，别让角标把整个面板拖挂。 */
 export async function readPanelState() {
   const raw = await readJson(STATE_FILE)
-  const state = { version: 1, seen: Object.create(null), updated_at: null }
+  const state = { version: 1, seen: Object.create(null), updated_at: null, lastGroup: null }
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return state
   if (raw.seen !== null && typeof raw.seen === 'object' && !Array.isArray(raw.seen)) {
     for (const [key, value] of Object.entries(raw.seen)) {
@@ -379,6 +379,7 @@ export async function readPanelState() {
     }
   }
   if (typeof raw.updated_at === 'string') state.updated_at = raw.updated_at
+  if (typeof raw.lastGroup === 'string' && raw.lastGroup !== '') state.lastGroup = raw.lastGroup
   return state
 }
 
@@ -399,6 +400,27 @@ export async function markGroupSeen(rawGroup, count) {
   await mkdir(dirname(STATE_FILE), { recursive: true })
   await writeJsonAtomic(STATE_FILE, state)
   return { id: entry.id, seenCount: state.seen[entry.id] }
+}
+
+/**
+ * 记下「面板最后打开的那个群」—— 下次开面板自动回到这儿。
+ * 群必须真实存在；传进来的群找不到就把记录清空，别在档案里留一个指不到的 id。
+ * @returns {{ id: string | null }}
+ */
+export async function setLastGroup(rawGroup) {
+  const state = await readPanelState()
+  let id = null
+  try {
+    id = (await resolveGroupDir(rawGroup)).id
+  } catch (error) {
+    if (!(error instanceof BusPanelError)) throw error
+    id = null
+  }
+  state.lastGroup = id
+  state.updated_at = new Date().toISOString()
+  await mkdir(dirname(STATE_FILE), { recursive: true })
+  await writeJsonAtomic(STATE_FILE, state)
+  return { id }
 }
 
 /**

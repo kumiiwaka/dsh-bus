@@ -1,0 +1,33 @@
+name: syntax
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  node-check:
+    name: node --check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 逐个文件查语法
+        run: |
+          set -e
+          files="
+          packages/dsh-window-bus/index.js
+          packages/dsh-bus-panel/index.js
+          packages/dsh-bus-panel/groups.js
+          packages/dsh-bus-panel/client.js
+          packages/dsh-bus-panel/server.mjs
+          "
+          for f in $files; do
+            echo "::group::node --check $f"
+            node --check "$f"
+            echo "::endgroup::"
+          done
+          echo "全部通过"

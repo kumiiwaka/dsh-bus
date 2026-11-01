@@ -127,7 +127,7 @@ window.__ModuleLoader__.load({
     }
 
     const store = {
-      state: { groups: [], loading: true, error: null },
+      state: { groups: [], lastGroup: null, loading: true, error: null },
       listeners: new Set(),
       timer: null,
       inFlight: false,
@@ -171,6 +171,7 @@ window.__ModuleLoader__.load({
           const data = await request('/bus-panel/api/groups')
           store.set({
             groups: Array.isArray(data.groups) ? data.groups : [],
+            lastGroup: typeof data.lastGroup === 'string' ? data.lastGroup : null,
             loading: false,
             error: null
           })
@@ -387,8 +388,25 @@ window.__ModuleLoader__.load({
         currentCtx?.layout?.selectPanel?.(null)
       }
 
+      const restoreRef = React.useRef(false)
+      React.useEffect(() => {
+        // 首次拿到群列表时，自动回到上次打开的那个群（只尝试一次，别跟用户抢）。
+        if (restoreRef.current || snapshot.loading) return
+        restoreRef.current = true
+        const want = snapshot.lastGroup
+        if (typeof want !== 'string' || want === '') return
+        if (!groups.some((group) => group.id === want)) return
+        setActiveId(want)
+      }, [snapshot.loading, snapshot.lastGroup, groups])
+
       const selectGroup = (group) => {
         if (group.id === activeId) return
+        void request('/bus-panel/api/active', {
+          method: 'POST',
+          body: JSON.stringify({ group: group.id })
+        }).catch(() => {
+          // 记不住上次的群不影响用，静默失败。
+        })
         setActiveId(group.id)
         setDraft('')
         setSendError(null)

@@ -23,7 +23,9 @@ import {
   getGroupView,
   limits,
   listGroups,
-  markGroupSeen
+  markGroupSeen,
+  readPanelState,
+  setLastGroup
 } from './groups.js'
 
 export const name = 'dsh-bus-panel'
@@ -117,7 +119,14 @@ async function dispatch(ctx, req, res) {
   try {
     if (path === '/api/groups' && method === 'GET') {
       const groups = await listGroups()
-      return sendJson(res, 200, { ok: true, root: ROOT, count: groups.length, groups })
+      const state = await readPanelState()
+      return sendJson(res, 200, {
+        ok: true,
+        root: ROOT,
+        count: groups.length,
+        groups,
+        lastGroup: state.lastGroup ?? null
+      })
     }
 
     if (path === '/api/messages' && method === 'GET') {
@@ -181,7 +190,14 @@ async function dispatch(ctx, req, res) {
       })
     }
 
-    if (path === '/api/groups' || path === '/api/messages' || path === '/api/mention' || path === '/api/seen') {
+    if (path === '/api/active' && method === 'POST') {
+      requireWriteHeader(req)
+      const body = await parseBody(req)
+      const saved = await setLastGroup(body.group)
+      return sendJson(res, 200, { ok: true, lastGroup: saved.id })
+    }
+
+    if (path === '/api/groups' || path === '/api/messages' || path === '/api/mention' || path === '/api/seen' || path === '/api/active') {
       return sendJson(res, 405, { ok: false, error: `不支持 ${method} ${path}` })
     }
     return sendJson(res, 404, { ok: false, error: '没有这个接口' })

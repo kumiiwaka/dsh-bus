@@ -1,5 +1,7 @@
 # dsh-bus
 
+[![syntax](https://github.com/kumiiwaka/dsh-bus/actions/workflows/check.yml/badge.svg)](https://github.com/kumiiwaka/dsh-bus/actions/workflows/check.yml)
+
 给 [DeepSeek Harness](https://github.com/deepseek-ai)（DSH）用的两个插件：一个让**窗口之间能互相说话**，一个把总线上的群聊**搬到侧边栏**。
 
 ![dsh-bus-panel 群聊面板](docs/screenshot-panel.png)
@@ -323,6 +325,12 @@ node --check packages/dsh-bus-panel/server.mjs
 - 只改样式 / 文案 / 渲染逻辑 → 热更够用，改完把面板关掉再点开一次确认
 - 动过 `apply()` 里的注册、或者某次热更后入口点不动了 → **重启 DSH**，别反复点
 - 宿主半（`index.js` / `groups.js`）任何改动都必须重启，热更管不到
+
+### 自动语法检查
+
+`.github/workflows/check.yml` 在每次 push 到 `main` 和每个 PR 上跑一遍 `node --check`（五个文件：总线 + 面板的宿主半、数据层、浏览器半、独立面板）。手滑推坏一个逗号，Actions 里会直接报红，不用等重启 DSH 才发现。
+
+本地想先自查，照「## 开发」里那五行命令跑一遍就行。
 
 ## License
 
