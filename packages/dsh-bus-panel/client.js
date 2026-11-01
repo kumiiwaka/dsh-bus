@@ -30,6 +30,7 @@ window.__ModuleLoader__.load({
     const CSS = `
       .bp-root{height:100%;min-height:0;display:flex;flex-direction:column;box-sizing:border-box;color:inherit;background:transparent;padding-top:var(--dsh-frame-top-clearance,0px);--bp-border:color-mix(in srgb,currentColor 14%,transparent);--bp-muted:color-mix(in srgb,currentColor 55%,transparent);--bp-hover:color-mix(in srgb,currentColor 7%,transparent);--bp-accent:var(--dsw-alias-state-business-primary,#4d6bfe);--bp-danger:var(--dsw-alias-state-error-primary,#d33);--bp-radius:var(--dsw-radius-md,8px)}
       .bp-root *{box-sizing:border-box}
+      .bp-root button{user-select:none;-webkit-user-select:none}
       .bp-root button,.bp-root textarea{font:inherit}
       .bp-header{flex:none;min-height:56px;display:flex;align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid var(--bp-border)}
       .bp-title{min-width:0;display:flex;flex-direction:column;gap:2px}
@@ -277,8 +278,10 @@ window.__ModuleLoader__.load({
       const [mode, setMode] = React.useState('broadcast')
       const [selected, setSelected] = React.useState([])
       const [sendNotice, setSendNotice] = React.useState(null)
+      const [refreshing, setRefreshing] = React.useState(false)
 
       const listRef = React.useRef(null)
+      const inputRef = React.useRef(null)
       const stickRef = React.useRef(true)
       const activeIdRef = React.useRef(null)
       const markedRef = React.useRef(-1)
@@ -361,9 +364,24 @@ window.__ModuleLoader__.load({
       }, [activeId, loadMessages])
 
       React.useEffect(() => {
+        if (activeId !== null) inputRef.current?.focus()
+      }, [activeId])
+
+      React.useEffect(() => {
         const element = listRef.current
         if (element !== null && stickRef.current) element.scrollTop = element.scrollHeight
       }, [messages])
+
+      const refresh = async () => {
+        if (refreshing) return
+        setRefreshing(true)
+        try {
+          await store.reload()
+          if (activeIdRef.current !== null) await loadMessages(activeIdRef.current, false)
+        } finally {
+          window.setTimeout(() => setRefreshing(false), 500)
+        }
+      }
 
       const closePanel = () => {
         currentCtx?.layout?.selectPanel?.(null)
@@ -569,6 +587,7 @@ window.__ModuleLoader__.load({
               ),
               h('div', { className: 'bp-composer' },
                 h('textarea', {
+                  ref: inputRef,
                   className: 'bp-input',
                   value: draft,
                   rows: 2,
@@ -609,8 +628,9 @@ window.__ModuleLoader__.load({
             h('button', {
               type: 'button',
               className: 'bp-btn',
-              onClick: () => void store.reload()
-            }, '刷新'),
+              disabled: refreshing,
+              onClick: () => void refresh()
+            }, refreshing ? '刷新中…' : '刷新'),
             h('button', {
               type: 'button',
               className: 'bp-btn bp-btn-primary',

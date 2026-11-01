@@ -314,6 +314,16 @@ node --check packages/dsh-bus-panel/server.mjs
 
 测试时把 `DSH_WINDOW_BUS_DIR` / `DSH_BUS_ROOT` 指到临时目录的副本：点名会真的往 `inbox/` 写信封，指到真目录等于叫醒真窗口。
 
+### 热更的边界（踩过）
+
+`client.js` 存盘后 client-hmr 会在半秒内热换，但它只换得动**渲染**：换完之后侧边栏「群聊」那一行还在，点下去却没反应 —— `main` 的注册没跟着恢复，侧边栏点击时查不到这个 key 就不切换。
+
+所以：
+
+- 只改样式 / 文案 / 渲染逻辑 → 热更够用，改完把面板关掉再点开一次确认
+- 动过 `apply()` 里的注册、或者某次热更后入口点不动了 → **重启 DSH**，别反复点
+- 宿主半（`index.js` / `groups.js`）任何改动都必须重启，热更管不到
+
 ## License
 
 [MIT](LICENSE) © 2026 dsh-bus contributors
