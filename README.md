@@ -39,7 +39,7 @@ DSH 里每个会话窗口都是独立的：窗口 A 不知道窗口 B 的存在�
 同时提供两种形态：
 
 - **插件形态**：宿主半注册 `/bus-panel/api/*`，浏览器半注册 `main` + `sidebar.panellist`，在 DSH 侧边栏里用。
-- **独立形态**：`server.mjs` 是个零依赖的本地 HTTP 服务（默认 <http://127.0.0.1:8767>），页面在 `public/index.html`，不装进 DSH 也能单独跑，读的是同一份磁盘数据。
+- **独立形态**：`server.mjs` 是个零依赖的本地 HTTP 服务（默认 <http://127.0.0.1:8767>），页面在 `public/index.html`，不装进 DSH 也能单独跑（**备用形态，默认不起、不自启**），读的是同一份磁盘数据。
 
 两种形态都只读 + 追加总线数据，不复制、不缓存消息。
 
@@ -105,15 +105,15 @@ Desktop profile 由 Electron 主进程独占管理，CLI 去改会报错（或�
 
 面板要放在 bundles 里 `dsh-window-bus` 的后面。装完重启，侧边栏顶部会出现「群聊」入口。
 
-### 可选：独立调试面板
+### 独立调试面板（默认不跑，也不自启）
 
-不想装进 DSH 时，直接跑：
+侧边栏面板是主形态。`server.mjs` 那个独立网页只是备用：只想看总线数据、或者侧边栏面板因为热更之类的原因点不动了，就手动跑一次、看完关掉。**别设成开机自启** —— 日常用不到它，白占一个进程和一个端口。
 
 ```powershell
 node C:\Users\<you>\dsh-bus\packages\dsh-bus-panel\server.mjs
 ```
 
-打开 <http://127.0.0.1:8767>。换端口用 `$env:DSH_BUS_PANEL_PORT = "8768"`；换数据目录用 `$env:DSH_WINDOW_BUS_DIR = "..."`。
+打开 <http://127.0.0.1:8767>，看完 `Ctrl+C` 关掉。换端口用 `$env:DSH_BUS_PANEL_PORT = "8768"`；换数据目录用 `$env:DSH_WINDOW_BUS_DIR = "..."`。
 
 ## 装完怎么验证
 
