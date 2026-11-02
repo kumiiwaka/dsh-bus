@@ -988,6 +988,37 @@ function kickScanner(ctx) {
  * 旧定时器还在跑就会双投。ctx.effect 是家里插件通用的接法（whale-widget / dsh-pet 同款）；
  * 老宿主没有它时退到 ctx.on('dispose')，再没有就只能跟着进程走，至少不会加载即崩。
  */
+/** 订阅工作区归档集合；服务或接口不齐就直接返回，调用方兜住异常。 */
+function startArchiveWatch(ctx) {
+  const controller = ctx.workspaceController
+  if (controller === undefined || typeof controller.follow !== 'function') return
+  const abort = new AbortController()
+  ctx.effect(() => {
+    const run = async () => {
+      while (!abort.signal.aborted) {
+        try {
+          for await (const frame of controller.follow(abort.signal)) {
+            if (abort.signal.aborted) break
+            if (frame?.type === 'baseline') {
+              absorbArchiveIds(frame.value?.archivedSessionIds)
+            } else {
+              const ids = frame?.value?.archivedSessionIds ?? frame?.archivedSessionIds
+              if (Array.isArray(ids)) absorbArchiveIds(ids)
+            }
+          }
+        } catch {
+          if (abort.signal.aborted) break
+        }
+        if (abort.signal.aborted) break
+        await new Promise((resolve) => setTimeout(resolve, 5000))
+      }
+    }
+    void run()
+    return () => abort.abort()
+  })
+}
+
+
 function startScanner(ctx) {
   const boot = async () => {
     try {
@@ -1415,33 +1446,14 @@ export function apply(ctx) {
 
   // 订阅工作区的归档集合：归档会话跑不了模型步（DSH 的 ArchivedSessionGate 会拦），
   // 投进去的消息会被消费掉。这里维护一份快照，投递前先查。
-  // workspaceController 不在（老版本 / 精简宿主）就静默降级：照常投，跟以前一样。
-  ctx.effect(() => {
-    const controller = ctx.workspaceController
-    if (controller === undefined || typeof controller.follow !== 'function') return () => {}
-    const abort = new AbortController()
-    const run = async () => {
-      while (!abort.signal.aborted) {
-        try {
-          for await (const frame of controller.follow(abort.signal)) {
-            if (abort.signal.aborted) break
-            if (frame?.type === 'baseline') {
-              absorbArchiveIds(frame.value?.archivedSessionIds)
-            } else {
-              const ids = frame?.value?.archivedSessionIds ?? frame?.archivedSessionIds
-              if (Array.isArray(ids)) absorbArchiveIds(ids)
-            }
-          }
-        } catch {
-          if (abort.signal.aborted) break
-        }
-        if (abort.signal.aborted) break
-        await new Promise((resolve) => setTimeout(resolve, 5000))
-      }
+  // workspaceController 不在 inject 里，访问要兜住：拿不到就静默降级，照常投。
+  if (typeof ctx.effect === 'function') {
+    try {
+      startArchiveWatch(ctx)
+    } catch {
+      /* 没有工作区服务：退化成「照常投」，跟以前一样 */
     }
-    void run()
-    return () => abort.abort()
-  }, 'bus: watch archived sessions')
+  }
 
   register(ctx, {
     name: 'bus_register',
