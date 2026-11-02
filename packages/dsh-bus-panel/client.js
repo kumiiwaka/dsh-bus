@@ -86,6 +86,19 @@ window.__ModuleLoader__.load({
       .bp-send{flex:none}
       .bp-notice{flex:none;padding:8px 16px;font-size:12px;color:var(--bp-muted);border-top:1px solid var(--bp-border)}
       .bp-error{color:var(--bp-danger)}
+      .bp-toolbar{flex:none;display:flex;align-items:center;gap:10px;padding:7px 16px;border-bottom:1px solid var(--bp-border)}
+      .bp-toolbar-label{font-size:11px;color:var(--bp-muted);flex:none}
+      .bp-members{display:flex;gap:6px;flex-wrap:nowrap;align-items:center;min-width:0;flex:1;overflow:hidden}
+      .bp-member{font-size:11px;padding:1px 7px;border:1px solid var(--bp-border);border-radius:999px;color:var(--bp-muted);white-space:nowrap}
+      .bp-member-creator{border-color:color-mix(in srgb,var(--bp-accent) 45%,transparent);color:inherit;font-weight:600}
+      .bp-member-on::before{content:'●';color:#4ade80;margin-right:4px;font-size:8px;vertical-align:middle}
+      .bp-member-off::before{content:'○';margin-right:4px;font-size:8px;vertical-align:middle;opacity:.55}
+      .bp-search{flex:none;display:flex;align-items:center;gap:2px}
+      .bp-search-input{width:150px;background:transparent;color:inherit;border:1px solid var(--bp-border);border-radius:var(--bp-radius);padding:4px 8px;font-size:12px;outline:none}
+      .bp-search-input:focus{border-color:var(--bp-accent)}
+      .bp-search-clear{appearance:none;border:0;background:transparent;color:var(--bp-muted);cursor:pointer;font-size:15px;line-height:1;padding:0 4px}
+      .bp-search-clear:hover{color:inherit}
+      .bp-day{align-self:center;font-size:11px;color:var(--bp-muted);margin:10px 0 2px;padding:1px 10px;border-radius:999px;background:var(--bp-hover)}
       .bp-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--bp-muted);font-size:13px;padding:24px;text-align:center}
       .bp-loading{padding:16px;color:var(--bp-muted);font-size:12px}
       @media (max-width:820px){.bp-groups{width:210px}}
@@ -206,6 +219,24 @@ window.__ModuleLoader__.load({
       })
     }
 
+    function dayKey(value) {
+      const date = new Date(value)
+      if (Number.isNaN(date.getTime())) return ''
+      return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+    }
+
+    function dayLabel(value) {
+      const date = new Date(value)
+      if (Number.isNaN(date.getTime())) return ''
+      const now = new Date()
+      const sameDay = (a, b) => a.getFullYear() === b.getFullYear()
+        && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+      if (sameDay(date, now)) return '今天'
+      const yesterday = new Date(now.getTime() - 86400000)
+      if (sameDay(date, yesterday)) return '昨天'
+      return `${date.getMonth() + 1} 月 ${date.getDate()} 日`
+    }
+
     function unreadOf(groups) {
       return groups.reduce((sum, group) => {
         if (group.archived) return sum
@@ -280,6 +311,7 @@ window.__ModuleLoader__.load({
       const [selected, setSelected] = React.useState([])
       const [sendNotice, setSendNotice] = React.useState(null)
       const [refreshing, setRefreshing] = React.useState(false)
+      const [query, setQuery] = React.useState('')
 
       const listRef = React.useRef(null)
       const inputRef = React.useRef(null)
@@ -514,15 +546,26 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const ordered = messages.slice().reverse()
+      const needle = query.trim().toLowerCase()
+      const ordered = messages.slice().reverse().filter((message) => {
+        if (needle === '') return true
+        const text = typeof message.text === 'string' ? message.text.toLowerCase() : ''
+        const from = typeof message.from === 'string' ? message.from.toLowerCase() : ''
+        return text.includes(needle) || from.includes(needle)
+      })
       const messageItems = ordered.map((message, index) => {
+        const previous = index > 0 ? ordered[index - 1] : null
+        const dayBreak = previous === null || dayKey(previous.created_at) !== dayKey(message.created_at)
+          ? h('div', { key: `day-${index}`, className: 'bp-day' }, dayLabel(message.created_at))
+          : null
         const own = message.from === '用户'
         const isMention = message.kind === 'mention'
         const toNames = Array.isArray(message.to)
           ? message.to.filter((name) => typeof name === 'string' && name !== '')
           : []
-        return h('div', {
-          key: `${message.id || 'msg'}-${index}`,
+        return h(React.Fragment, { key: `${message.id || 'msg'}-${index}` },
+          dayBreak,
+          h('div', {
           className: `bp-msg${own ? ' bp-msg-own' : ''}${isMention ? ' bp-msg-mention' : ''}`
         },
           h('div', { className: 'bp-msg-meta' },
@@ -537,13 +580,56 @@ window.__ModuleLoader__.load({
           ),
           h('div', { className: 'bp-msg-text' }, message.text || '')
         )
+        )
       })
 
       let mainContent
       if (active === null) {
         mainContent = h('div', { className: 'bp-empty' }, groups.length === 0 ? '总线里还没有群' : '从左侧选一个群')
       } else {
+        const memberNames = Array.isArray(active.members) ? active.members : []
+        const candidateMap = new Map(
+          (Array.isArray(mentionInfo?.candidates) ? mentionInfo.candidates : [])
+            .map((item) => [item.name, item.active === true])
+        )
+        const onlineCount = memberNames.filter(
+          (name) => name === active.creator || candidateMap.get(name) === true
+        ).length
         mainContent = h(React.Fragment, null,
+          h('div', { className: 'bp-toolbar' },
+            h('span', { className: 'bp-toolbar-label' }, '成员'),
+            h('div', { className: 'bp-members' },
+              memberNames.length === 0
+                ? h('span', { className: 'bp-member' }, '（没有记录）')
+                : memberNames.map((name) => {
+                  const isCreator = name === active.creator
+                  const isOnline = isCreator ? true : candidateMap.get(name) === true
+                  return h('span', {
+                    key: name,
+                    className: `bp-member${isCreator ? ' bp-member-creator' : ''}${isOnline ? ' bp-member-on' : ' bp-member-off'}`,
+                    title: isCreator
+                      ? `${name}：这个群的建群者`
+                      : (isOnline
+                        ? `${name}：现在在总线上，广播他/她读得到`
+                        : `${name}：现在不在总线（没注册或 inactive），广播也读不到`)
+                  }, `${name}${isCreator ? ' · 建群者' : ''}`)
+                })
+            ),
+            h('div', { className: 'bp-search' },
+              h('input', {
+                className: 'bp-search-input',
+                value: query,
+                placeholder: '搜消息…',
+                onChange: (event) => setQuery(event.target.value)
+              }),
+              query !== '' && h('button', {
+                type: 'button',
+                className: 'bp-search-clear',
+                title: '清空搜索',
+                onClick: () => setQuery('')
+              }, '×')
+            )
+          ),
           h('div', {
             className: 'bp-messages',
             ref: listRef,
@@ -552,7 +638,8 @@ window.__ModuleLoader__.load({
             msgLoading && messages.length === 0
               ? h('div', { className: 'bp-empty' }, '加载消息…')
               : messageItems.length === 0
-                ? h('div', { className: 'bp-empty' }, '这个群还没有消息')
+                ? h('div', { className: 'bp-empty' },
+                  needle === '' ? '这个群还没有消息' : `没有匹配「${query.trim()}」的消息`)
                 : messageItems
           ),
           msgError && h('div', { className: 'bp-notice bp-error' }, `消息读取失败：${msgError}`),
@@ -581,9 +668,7 @@ window.__ModuleLoader__.load({
                 h('span', { className: 'bp-mode-note' },
                   mode === 'mention'
                     ? `已选 ${selected.length} 人 · 以建群者 ${mentionInfo?.as || ''} 身份发送`
-                    : (canMention
-                      ? `点名会推送并叫醒对方窗口 · 以建群者 ${mentionInfo?.as || ''} 身份发送`
-                      : `点名不可用：${mentionBlockedReason}`))
+                    : `广播只落盘不推送 → 群里 ${memberNames.length} 人，其中 ${onlineCount} 个在线读得到${canMention ? '（要叫醒就切「点名」）' : ''}`)
               ),
               mode === 'mention' && canMention && h('div', { className: 'bp-chips' },
                 candidates.length === 0
