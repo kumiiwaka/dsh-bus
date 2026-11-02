@@ -650,6 +650,7 @@ async function deliverMessage(ctx, msg, workPath) {
     return
   }
 
+  await refreshArchivedSessions()
   if (isArchivedSession(targetId)) {
     // 归档会话跑不了模型步：投进去只会被闸门拦成 blocked，消息白丢。
     // 留在原地，等它解档后由扫描器自然重投。
@@ -988,34 +989,33 @@ function kickScanner(ctx) {
  * 旧定时器还在跑就会双投。ctx.effect 是家里插件通用的接法（whale-widget / dsh-pet 同款）；
  * 老宿主没有它时退到 ctx.on('dispose')，再没有就只能跟着进程走，至少不会加载即崩。
  */
-/** 订阅工作区归档集合；服务或接口不齐就直接返回，调用方兜住异常。 */
+/**
+ * 归档会话集合：DSH 把归档的 session id 存在 `~/.dsh/storages/workspace.json`
+ * 的 `global.archivedSessionIds`。这里直接读文件 —— 比订阅 workspaceController
+ * 稳，不依赖服务注入，也不挑宿主版本。发送前会同步刷一次，定时器只是缓存加速。
+ */
+const WORKSPACE_STORE = join(homedir(), '.dsh', 'storages', 'workspace.json')
+
+async function refreshArchivedSessions() {
+  try {
+    const raw = await readFile(WORKSPACE_STORE, 'utf8')
+    const parsed = JSON.parse(raw)
+    absorbArchiveIds(parsed?.global?.archivedSessionIds)
+  } catch {
+    /* 文件不在 / 还没写完：保持上一次的快照 */
+  }
+}
+
 function startArchiveWatch(ctx) {
-  const controller = ctx.workspaceController
-  if (controller === undefined || typeof controller.follow !== 'function') return
-  const abort = new AbortController()
-  ctx.effect(() => {
-    const run = async () => {
-      while (!abort.signal.aborted) {
-        try {
-          for await (const frame of controller.follow(abort.signal)) {
-            if (abort.signal.aborted) break
-            if (frame?.type === 'baseline') {
-              absorbArchiveIds(frame.value?.archivedSessionIds)
-            } else {
-              const ids = frame?.value?.archivedSessionIds ?? frame?.archivedSessionIds
-              if (Array.isArray(ids)) absorbArchiveIds(ids)
-            }
-          }
-        } catch {
-          if (abort.signal.aborted) break
-        }
-        if (abort.signal.aborted) break
-        await new Promise((resolve) => setTimeout(resolve, 5000))
-      }
-    }
-    void run()
-    return () => abort.abort()
-  })
+  const tick = () => { void refreshArchivedSessions() }
+  tick()
+  const arm = () => {
+    const timer = setInterval(tick, 5000)
+    if (typeof timer.unref === 'function') timer.unref()
+    return () => clearInterval(timer)
+  }
+  if (typeof ctx.effect === 'function') ctx.effect(arm)
+  else arm()
 }
 
 
@@ -1634,6 +1634,7 @@ export function apply(ctx) {
       hits.push(now)
       recent.set(targetId, hits)
 
+      await refreshArchivedSessions()
       if (isArchivedSession(targetId)) {
         await appendMessage({
           at: new Date().toISOString(),
