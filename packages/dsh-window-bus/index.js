@@ -53,8 +53,8 @@ import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 
 const DSH_HOME = process.env.DSH_HOME ?? join(homedir(), '.dsh')
-/** 总线数据目录：默认放 DSH_HOME 下的 window-bus/；DSH_WINDOW_BUS_DIR 可整体改到别处。 */
-const BUS_DIR = process.env.DSH_WINDOW_BUS_DIR ?? join(DSH_HOME, 'window-bus')
+/** 插件源码目录；总线数据跟它放一起，人眼好查。真实位置由 DSH_WINDOW_BUS_DIR 决定。 */
+const BUS_DIR = process.env.DSH_WINDOW_BUS_DIR ?? join(homedir(), '大肥鱼的家', 'dsh-window-bus')
 const MESSAGES = join(BUS_DIR, 'messages.jsonl')
 const WINDOWS_FILE = join(BUS_DIR, 'windows.json')
 /** v0.3 的身份档案，只读 + 自动迁移，永不删除（回滚就删 windows.json）。 */
@@ -158,7 +158,7 @@ async function fileExists(path) {
 }
 
 /**
- * `--C-Users-alice-projects-demo--` → `C:\Users\alice\projects\demo`
+ * `--C-Users-<用户名>-<工作区目录的编码>--` → `C:\Users\<用户名>\<工作区目录>`
  *
  * 编码规则：`--` 包住整条路径；`-` 是分隔符；非 ASCII 字符写成 `~XXXX~`（UTF-16 码点，
  * 相邻的共用一个 `~`，所以必须按 `~` 切、不能按固定长度匹配）。首段如果只有一个字母，
@@ -615,6 +615,24 @@ async function promptInto(ctx, sessionId, msg, mode) {
 }
 
 /**
+ * 已归档的会话集合：DSH 的 ArchivedSessionGate 会拦掉对归档会话的唤醒投递，
+ * 那一轮以 blocked 结束、消息被消费掉（等于丢失）。所以投递前先查这里，
+ * 中了就留在原处不投，等它解档再送。来源是 workspaceController.follow() 的 baseline。
+ */
+const archivedSessions = new Set()
+
+function isArchivedSession(sessionId) {
+  return typeof sessionId === 'string' && sessionId !== '' && archivedSessions.has(sessionId)
+}
+
+function absorbArchiveIds(ids) {
+  if (!Array.isArray(ids)) return false
+  archivedSessions.clear()
+  for (const id of ids) if (typeof id === 'string' && id !== '') archivedSessions.add(id)
+  return true
+}
+
+/**
  * 一次投递。成功 → delivered（要回执的进 pending-ack/，其余进 archive）；
  * 失败 → 退避重试或进 failed/。
  */
@@ -629,6 +647,24 @@ async function deliverMessage(ctx, msg, workPath) {
   if (targetId === '') {
     // 收件人的会话 id 没了：不失败，留在原地等它重新注册（过期由扫描器兜）。
     await requeueMessage(msg, workPath, '收件人还查不到会话 id，等它注册', 0)
+    return
+  }
+
+  if (isArchivedSession(targetId)) {
+    // 归档会话跑不了模型步：投进去只会被闸门拦成 blocked，消息白丢。
+    // 留在原地，等它解档后由扫描器自然重投。
+    await appendMessage({
+      at: new Date().toISOString(),
+      event: 'held',
+      msg_id: msg.id,
+      from: msg.from,
+      to: msg.to,
+      hops: msg.hops,
+      ok: false,
+      reason: 'target-archived',
+      preview: textOf(msg.text).slice(0, 120)
+    })
+    await requeueMessage(msg, workPath, '目标会话已归档，DSH 会拦掉唤醒；等它解档再投', 0)
     return
   }
 
@@ -949,7 +985,7 @@ function kickScanner(ctx) {
 
 /**
  * 启动扫描器。定时器和在途 prompt 都挂在宿主的 dispose 钩子上，卸载时一起清 ——
- * 旧定时器还在跑就会双投。ctx.effect 是宿主插件的标准接法（拿到卸载钩子）；
+ * 旧定时器还在跑就会双投。ctx.effect 是家里插件通用的接法（whale-widget / dsh-pet 同款）；
  * 老宿主没有它时退到 ctx.on('dispose')，再没有就只能跟着进程走，至少不会加载即崩。
  */
 function startScanner(ctx) {
@@ -1377,6 +1413,36 @@ export function apply(ctx) {
   dirsReady = false
   startScanner(ctx)
 
+  // 订阅工作区的归档集合：归档会话跑不了模型步（DSH 的 ArchivedSessionGate 会拦），
+  // 投进去的消息会被消费掉。这里维护一份快照，投递前先查。
+  // workspaceController 不在（老版本 / 精简宿主）就静默降级：照常投，跟以前一样。
+  ctx.effect(() => {
+    const controller = ctx.workspaceController
+    if (controller === undefined || typeof controller.follow !== 'function') return () => {}
+    const abort = new AbortController()
+    const run = async () => {
+      while (!abort.signal.aborted) {
+        try {
+          for await (const frame of controller.follow(abort.signal)) {
+            if (abort.signal.aborted) break
+            if (frame?.type === 'baseline') {
+              absorbArchiveIds(frame.value?.archivedSessionIds)
+            } else {
+              const ids = frame?.value?.archivedSessionIds ?? frame?.archivedSessionIds
+              if (Array.isArray(ids)) absorbArchiveIds(ids)
+            }
+          }
+        } catch {
+          if (abort.signal.aborted) break
+        }
+        if (abort.signal.aborted) break
+        await new Promise((resolve) => setTimeout(resolve, 5000))
+      }
+    }
+    void run()
+    return () => abort.abort()
+  }, 'bus: watch archived sessions')
+
   register(ctx, {
     name: 'bus_register',
     description: [
@@ -1555,6 +1621,29 @@ export function apply(ctx) {
       }
       hits.push(now)
       recent.set(targetId, hits)
+
+      if (isArchivedSession(targetId)) {
+        await appendMessage({
+          at: new Date().toISOString(),
+          event: 'send',
+          msg_id: msgId,
+          from: selfLabel,
+          to: targetId,
+          to_name: targetName,
+          mode: args.mode === 'queue' ? 'queue' : 'steer',
+          hops,
+          ok: false,
+          error: 'target-archived'
+        })
+        const who = targetName === undefined ? targetId : targetName
+        throw new Error(
+          `bus_send: 收件人「${who}」的会话现在是**归档状态**。\n` +
+          'DSH 的 ArchivedSessionGate 会拦掉对归档会话的唤醒投递 —— 那一轮以 blocked 结束、消息被消费掉，等于白丢，所以我先拦下来了。\n' +
+          '两个办法：\n' +
+          '① 先让它解档（侧边栏会话右键 → 取消归档），再用 bus_send；\n' +
+          '② 改用 bus_post —— 那条会留在它的信箱里，等它解档后自动补送。'
+        )
+      }
 
       const wanted = args.mode === 'queue' ? 'queue' : 'steer'
       const signal = exec !== void 0 && exec.signal !== void 0 ? exec.signal : new AbortController().signal
