@@ -22,7 +22,10 @@ import {
   appendMention,
   getGroupView,
   limits,
+  createGroup,
+  dissolveGroup,
   listGroups,
+  listWindows,
   markGroupSeen,
   readPanelState,
   setLastGroup
@@ -129,6 +132,26 @@ async function dispatch(ctx, req, res) {
       })
     }
 
+    if (path === '/api/windows' && method === 'GET') {
+      return sendJson(res, 200, { ok: true, windows: await listWindows() })
+    }
+
+    if (path === '/api/create' && method === 'POST') {
+      requireWriteHeader(req)
+      const body = await parseBody(req)
+      const created = await createGroup(body.name, body.members, body.note)
+      ctx.logger?.info?.(`[bus-panel] 新建群「${created.name}」（建群者 ${created.creator}）`)
+      return sendJson(res, 200, { ok: true, group: created })
+    }
+
+    if (path === '/api/dissolve' && method === 'POST') {
+      requireWriteHeader(req)
+      const body = await parseBody(req)
+      const done = await dissolveGroup(body.group)
+      ctx.logger?.info?.(`[bus-panel] 解散群「${done.from}」→ ${done.id}`)
+      return sendJson(res, 200, { ok: true, id: done.id, from: done.from })
+    }
+
     if (path === '/api/messages' && method === 'GET') {
       const view = await getGroupView(url.searchParams.get('group'))
       const limit = parseLimit(url.searchParams.get('limit'))
@@ -145,7 +168,7 @@ async function dispatch(ctx, req, res) {
       requireWriteHeader(req)
       const body = await parseBody(req)
       const result = await appendBroadcast(body.group, body.text)
-      ctx.logger?.info?.(`[bus-panel] 用户 → 群「${result.group.name}」`)
+      ctx.logger?.info?.(`[bus-panel] 面板广播 → 群「${result.group.name}」`)
       return sendJson(res, 200, {
         ok: true,
         kind: 'broadcast',
@@ -197,7 +220,7 @@ async function dispatch(ctx, req, res) {
       return sendJson(res, 200, { ok: true, lastGroup: saved.id })
     }
 
-    if (path === '/api/groups' || path === '/api/messages' || path === '/api/mention' || path === '/api/seen' || path === '/api/active') {
+    if (path === '/api/groups' || path === '/api/messages' || path === '/api/mention' || path === '/api/seen' || path === '/api/active' || path === '/api/windows' || path === '/api/create' || path === '/api/dissolve') {
       return sendJson(res, 405, { ok: false, error: `不支持 ${method} ${path}` })
     }
     return sendJson(res, 404, { ok: false, error: '没有这个接口' })

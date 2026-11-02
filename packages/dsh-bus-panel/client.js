@@ -44,6 +44,15 @@ window.__ModuleLoader__.load({
       .bp-btn-primary:hover{background:var(--bp-accent);filter:brightness(1.05)}
       .bp-body{flex:1;min-height:0;display:flex}
       .bp-groups{width:280px;flex:none;overflow:auto;padding:8px;border-right:1px solid var(--bp-border)}
+      .bp-create-wrap{flex:none;margin-bottom:8px}
+      .bp-new-group{width:100%;appearance:none;border:1px dashed var(--bp-border);background:transparent;color:var(--bp-muted);border-radius:var(--bp-radius);padding:6px 10px;font-size:12px;cursor:pointer}
+      .bp-new-group:hover{color:inherit;border-color:var(--bp-accent)}
+      .bp-create{display:flex;flex-direction:column;gap:6px;padding:8px;margin-top:6px;border:1px solid var(--bp-border);border-radius:var(--bp-radius)}
+      .bp-create-input{width:100%;background:transparent;color:inherit;border:1px solid var(--bp-border);border-radius:var(--bp-radius);padding:5px 8px;font-size:12px;outline:none}
+      .bp-create-input:focus{border-color:var(--bp-accent)}
+      .bp-create-members{display:flex;flex-wrap:wrap;gap:5px}
+      .bp-create-go{align-self:flex-start}
+      .bp-btn-danger{background:color-mix(in srgb,var(--bp-danger) 22%,transparent);border-color:color-mix(in srgb,var(--bp-danger) 55%,transparent);color:var(--bp-danger)}
       .bp-group{display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;border-radius:var(--bp-radius);padding:9px 10px;cursor:pointer;margin:0 0 2px}
       .bp-group:hover{background:var(--bp-hover)}
       .bp-group-active{background:var(--bp-hover)}
@@ -52,7 +61,7 @@ window.__ModuleLoader__.load({
       .bp-unread{flex:none;min-width:18px;height:18px;line-height:18px;padding:0 6px;border-radius:9px;background:var(--bp-accent);color:#fff;font-size:11px;font-weight:600;text-align:center}
       .bp-group-meta{font-size:11px;color:var(--bp-muted);margin-top:3px;display:flex;gap:6px;flex-wrap:wrap}
       .bp-group-preview{font-size:12px;color:var(--bp-muted);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      .bp-main{flex:1;min-width:0;display:flex;flex-direction:column}
+      .bp-main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
       .bp-messages{flex:1;min-height:0;overflow:auto;padding:16px 20px;display:flex;flex-direction:column;gap:10px}
       .bp-msg{max-width:78%;align-self:flex-start}
       .bp-msg-own{align-self:flex-end}
@@ -60,6 +69,14 @@ window.__ModuleLoader__.load({
       .bp-msg-mention .bp-msg-text{border:1px solid color-mix(in srgb,var(--bp-accent) 28%,transparent)}
       .bp-msg-meta{font-size:11px;color:var(--bp-muted);display:flex;gap:8px;align-items:center;margin:0 4px 3px}
       .bp-msg-from{font-weight:600;color:inherit}
+      .bp-msg-from-link{cursor:pointer;border-bottom:1px dashed currentColor}
+      .bp-msg-from-link:hover{color:var(--bp-accent);border-bottom-color:var(--bp-accent)}
+      .bp-msg-collapsed{max-height:8.4em;overflow:hidden;position:relative}
+      .bp-msg-collapsed::after{content:'';position:absolute;left:0;right:0;bottom:0;height:2.4em;pointer-events:none;background:linear-gradient(transparent,color-mix(in srgb,currentColor 12%,transparent))}
+      .bp-msg-more{appearance:none;border:0;background:transparent;color:var(--bp-accent);font-size:12px;cursor:pointer;padding:2px 4px;align-self:flex-start}
+      .bp-msg-more:hover{text-decoration:underline}
+      .bp-jump-latest{position:absolute;right:20px;bottom:132px;z-index:6;appearance:none;border:1px solid var(--bp-border);background:color-mix(in srgb,currentColor 12%,transparent);color:inherit;border-radius:999px;padding:4px 12px;font-size:12px;line-height:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.28)}
+      .bp-jump-latest:hover{background:var(--bp-accent);color:#fff;border-color:transparent}
       .bp-msg-text{background:var(--bp-hover);border-radius:10px;padding:8px 10px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.5}
       .bp-msg-own .bp-msg-text{background:color-mix(in srgb,var(--bp-accent) 16%,transparent);border:1px solid color-mix(in srgb,var(--bp-accent) 30%,transparent)}
       .bp-tag{font-size:10px;padding:0 4px;border:1px solid var(--bp-border);border-radius:4px}
@@ -312,6 +329,15 @@ window.__ModuleLoader__.load({
       const [sendNotice, setSendNotice] = React.useState(null)
       const [refreshing, setRefreshing] = React.useState(false)
       const [query, setQuery] = React.useState('')
+      const [atBottom, setAtBottom] = React.useState(true)
+      const [expandedIds, setExpandedIds] = React.useState([])
+      const [creating, setCreating] = React.useState(false)
+      const [newName, setNewName] = React.useState('')
+      const [newNote, setNewNote] = React.useState('')
+      const [newMembers, setNewMembers] = React.useState([])
+      const [windowList, setWindowList] = React.useState([])
+      const [busyCreate, setBusyCreate] = React.useState(false)
+      const [dissolveArmed, setDissolveArmed] = React.useState(false)
 
       const listRef = React.useRef(null)
       const inputRef = React.useRef(null)
@@ -420,6 +446,62 @@ window.__ModuleLoader__.load({
         currentCtx?.layout?.selectPanel?.(null)
       }
 
+      React.useEffect(() => {
+        if (!creating) return undefined
+        let alive = true
+        void (async () => {
+          try {
+            const data = await request('/bus-panel/api/windows')
+            if (alive && Array.isArray(data.windows)) setWindowList(data.windows)
+          } catch {
+            // 拉不到就只能是空列表，别把建群整个卡住。
+          }
+        })()
+        return () => { alive = false }
+      }, [creating])
+
+      const submitCreate = async () => {
+        const name = newName.trim()
+        if (name === '' || busyCreate) return
+        setBusyCreate(true)
+        try {
+          const data = await request('/bus-panel/api/create', {
+            method: 'POST',
+            body: JSON.stringify({ name, members: newMembers, note: newNote })
+          })
+          setCreating(false)
+          setNewName('')
+          setNewNote('')
+          setNewMembers([])
+          await store.reload()
+          if (data?.group?.id) setActiveId(data.group.id)
+        } catch (error) {
+          setSendError(error instanceof Error ? error.message : String(error))
+        } finally {
+          setBusyCreate(false)
+        }
+      }
+
+      const submitDissolve = async () => {
+        if (active === null) return
+        if (!dissolveArmed) {
+          setDissolveArmed(true)
+          window.setTimeout(() => setDissolveArmed(false), 4000)
+          return
+        }
+        setDissolveArmed(false)
+        try {
+          await request('/bus-panel/api/dissolve', {
+            method: 'POST',
+            body: JSON.stringify({ group: active.id })
+          })
+          setActiveId(null)
+          await store.reload()
+        } catch (error) {
+          setSendError(error instanceof Error ? error.message : String(error))
+        }
+      }
+
       const restoreRef = React.useRef(false)
       React.useEffect(() => {
         // 首次拿到群列表时，自动回到上次打开的那个群（只尝试一次，别跟用户抢）。
@@ -457,6 +539,27 @@ window.__ModuleLoader__.load({
         setSendError(null)
         setSendNotice(null)
         if (next !== 'mention') setSelected([])
+      }
+
+      // 点消息里的发件人名，直接把人塞进点名名单（聊天里最顺手的那个动作）。
+      const pickMember = (name) => {
+        if (typeof name !== 'string' || name === '') return
+        if (!canMention) {
+          setSendNotice(`点名不可用：${mentionBlockedReason}`)
+          return
+        }
+        const found = candidates.find((item) => item.name === name)
+        if (found === undefined) {
+          setSendNotice(`「${name}」不在这个群的可点名名单里（可能是建群者本人）`)
+          return
+        }
+        if (found.active !== true) {
+          setSendNotice(`「${name}」现在不在总线上，点名也送不到`)
+          return
+        }
+        setMode('mention')
+        setSelected((previous) => (previous.includes(name) ? previous : [...previous, name]))
+        setSendNotice(null)
       }
 
       const toggleMember = (member) => {
@@ -513,7 +616,9 @@ window.__ModuleLoader__.load({
       const onMessagesScroll = () => {
         const element = listRef.current
         if (element === null) return
-        stickRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80
+        const near = element.scrollHeight - element.scrollTop - element.clientHeight < 80
+        stickRef.current = near
+        setAtBottom((previous) => (previous === near ? previous : near))
       }
 
       const groupItems = []
@@ -558,6 +663,13 @@ window.__ModuleLoader__.load({
         const dayBreak = previous === null || dayKey(previous.created_at) !== dayKey(message.created_at)
           ? h('div', { key: `day-${index}`, className: 'bp-day' }, dayLabel(message.created_at))
           : null
+        const senderName = typeof message.from === 'string' ? message.from : ''
+        const pickable = senderName !== '' && active !== null && senderName !== active.creator
+          && candidates.some((item) => item.name === senderName)
+        const rawText = typeof message.text === 'string' ? message.text : ''
+        const expandKey = `${message.id || 'msg'}-${index}`
+        const isLong = rawText.length > 400 || rawText.split('\n').length > 8
+        const expanded = expandedIds.includes(expandKey)
         const own = message.from === '用户'
         const isMention = message.kind === 'mention'
         const toNames = Array.isArray(message.to)
@@ -569,7 +681,11 @@ window.__ModuleLoader__.load({
           className: `bp-msg${own ? ' bp-msg-own' : ''}${isMention ? ' bp-msg-mention' : ''}`
         },
           h('div', { className: 'bp-msg-meta' },
-            h('span', { className: 'bp-msg-from' }, message.from || '未知'),
+            h('span', {
+              className: `bp-msg-from${pickable ? ' bp-msg-from-link' : ''}`,
+              title: pickable ? `点一下把「${senderName}」加进点名名单` : undefined,
+              onClick: pickable ? () => pickMember(senderName) : undefined
+            }, message.from || '未知'),
             h('span', {}, formatTime(message.created_at)),
             isMention && h('span', { className: 'bp-tag bp-tag-mention' }, '点名'),
             message.requires_ack === true && h('span', { className: 'bp-tag' }, '需回执'),
@@ -578,7 +694,16 @@ window.__ModuleLoader__.load({
               title: `点名：${toNames.join('、')}`
             }, `@${toNames.join('、')}`)
           ),
-          h('div', { className: 'bp-msg-text' }, message.text || '')
+          h('div', {
+            className: `bp-msg-text${isLong && !expanded ? ' bp-msg-collapsed' : ''}`
+          }, rawText),
+          isLong && h('button', {
+            type: 'button',
+            className: 'bp-msg-more',
+            onClick: () => setExpandedIds((previous) => previous.includes(expandKey)
+              ? previous.filter((key) => key !== expandKey)
+              : [...previous, expandKey])
+          }, expanded ? '收起' : `展开全文（${rawText.length} 字）`)
         )
         )
       })
@@ -642,6 +767,19 @@ window.__ModuleLoader__.load({
                   needle === '' ? '这个群还没有消息' : `没有匹配「${query.trim()}」的消息`)
                 : messageItems
           ),
+          !atBottom && h('button', {
+            type: 'button',
+            className: 'bp-jump-latest',
+            title: '跳到最新消息',
+            onClick: () => {
+              const element = listRef.current
+              if (element !== null) {
+                stickRef.current = true
+                element.scrollTop = element.scrollHeight
+                setAtBottom(true)
+              }
+            }
+          }, '↓ 最新'),
           msgError && h('div', { className: 'bp-notice bp-error' }, `消息读取失败：${msgError}`),
           sendError && h('div', { className: 'bp-notice bp-error' }, `发送失败：${sendError}`),
           sendNotice && h('div', { className: 'bp-notice bp-error' }, sendNotice),
@@ -728,6 +866,14 @@ window.__ModuleLoader__.load({
               : `${active.name}${active.archived ? ' · 已解散' : ''}${active.note ? ` · ${active.note}` : ''}`)
           ),
           h('div', { className: 'bp-actions' },
+            active !== null && !active.archived && mentionInfo?.allowed === true && h('button', {
+              type: 'button',
+              className: `bp-btn${dissolveArmed ? ' bp-btn-danger' : ''}`,
+              title: dissolveArmed
+                ? '再点一次就真的解散（只改名归档，消息一条不删）'
+                : '解散这个群（只改名归档，消息一条不删，可以改回来）',
+              onClick: () => void submitDissolve()
+            }, dissolveArmed ? '确定解散？' : '解散'),
             h('button', {
               type: 'button',
               className: 'bp-btn',
@@ -751,7 +897,53 @@ window.__ModuleLoader__.load({
           }, '重试')
         ),
         h('div', { className: 'bp-body' },
-          h('div', { className: 'bp-groups' }, groupItems),
+          h('div', { className: 'bp-groups' },
+            h('div', { className: 'bp-create-wrap' },
+              h('button', {
+                type: 'button',
+                className: 'bp-new-group',
+                onClick: () => setCreating((value) => !value)
+              }, creating ? '取消新建' : '＋ 新建群'),
+              creating && h('div', { className: 'bp-create' },
+                h('input', {
+                  className: 'bp-create-input',
+                  value: newName,
+                  placeholder: '群名（中文/字母/数字/-/_，≤40 字）',
+                  onChange: (event) => setNewName(event.target.value)
+                }),
+                h('input', {
+                  className: 'bp-create-input',
+                  value: newNote,
+                  placeholder: '备注（可选，就一句话）',
+                  onChange: (event) => setNewNote(event.target.value)
+                }),
+                h('div', { className: 'bp-create-members' },
+                  windowList.length === 0
+                    ? h('span', { className: 'bp-chip-count' }, '没有可拉的窗口')
+                    : windowList.map((item) => {
+                      const on = newMembers.includes(item.name)
+                      return h('button', {
+                        key: item.name,
+                        type: 'button',
+                        className: `bp-chip${on ? ' bp-chip-on' : ''}${item.online ? '' : ' bp-chip-off'}`,
+                        title: item.online ? `拉进群：${item.name}` : `${item.name}：现在不在总线上，拉了也收不到`,
+                        disabled: !item.online,
+                        onClick: () => setNewMembers((previous) => (previous.includes(item.name)
+                          ? previous.filter((name) => name !== item.name)
+                          : [...previous, item.name]))
+                      }, `${on ? '✓ ' : ''}${item.name}`)
+                    })
+                ),
+                h('button', {
+                  type: 'button',
+                  className: 'bp-btn bp-btn-primary bp-create-go',
+                  disabled: busyCreate || newName.trim() === '',
+                  onClick: () => void submitCreate()
+                }, busyCreate ? '建群中…' : '建群')
+              )
+            ),
+            groupItems
+          ),
           h('div', { className: 'bp-main' }, mainContent)
         )
       )

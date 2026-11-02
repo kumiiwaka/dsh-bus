@@ -23,15 +23,18 @@ import { appendFile, mkdir, readdir, readFile, rename, unlink, writeFile } from 
 import { homedir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
+
+const HERE = dirname(fileURLToPath(import.meta.url))
 
 /**
- * 数据根目录：DSH_BUS_ROOT（测试专用）> DSH_WINDOW_BUS_DIR（跟 dsh-window-bus 同款）> ~/.dsh/window-bus。
+ * 数据根目录：DSH_BUS_ROOT（测试专用）> DSH_WINDOW_BUS_DIR（跟 dsh-window-bus 同款）> 家目录。
  * 测试必须指到 %TEMP% 的副本：appendMention 会写 inbox/，真目录等于叫醒真窗口。
  */
 export const ROOT = resolve(
   (process.env.DSH_BUS_ROOT ?? '').trim()
     || (process.env.DSH_WINDOW_BUS_DIR ?? '').trim()
-    || join(homedir(), '.dsh', 'window-bus')
+    || join(homedir(), '大肥鱼的家', 'dsh-window-bus')
 )
 export const GROUPS_DIR = join(ROOT, 'groups')
 
@@ -40,10 +43,10 @@ export const WINDOWS_FILE = join(ROOT, 'windows.json')
 export const MESSAGES_FILE = join(ROOT, 'messages.jsonl')
 export const INBOX_DIR = join(ROOT, 'inbox')
 
-/** 未读游标文件；默认放 ~/.dsh/bus-panel/，不跟总线数据放一起，避免被误当成消息。 */
+/** 未读游标文件；不跟总线数据放一起，避免被误当成消息。 */
 export const STATE_FILE = resolve(
   (process.env.DSH_BUS_PANEL_STATE ?? '').trim()
-    || join(homedir(), '.dsh', 'bus-panel', 'panel-state.json')
+    || join(HERE, 'panel-state.json')
 )
 
 /** 群名就是目录名：只放行中文、字母、数字、- 和 _（跟插件自己的限制取交集）。 */
@@ -454,6 +457,140 @@ export async function resolveGroupDir(rawGroup) {
   const dir = resolve(hit.dir)
   if (!isInsideDir(GROUPS_DIR, dir)) throw new BusPanelError(400, '群路径越界')
   return { ...hit, dir }
+}
+
+/** 建群时可以拉的人：windows.json 里的窗口（面板前端用来做多选）。 */
+export async function listWindows() {
+  const registry = await readRegistry()
+  const windows = registry?.windows ?? {}
+  const rows = []
+  for (const [name, entry] of Object.entries(windows)) {
+    if (entry === null || typeof entry !== 'object') continue
+    if (!isSafeMemberName(name)) continue
+    rows.push({
+      name,
+      role: textOf(entry.role),
+      active: entry.active !== false,
+      online: activeSessionOf(registry, name) !== ''
+    })
+  }
+  rows.sort((a, b) => (a.name < b.name ? -1 : 1))
+  return rows
+}
+
+/** 归档目录用的本地时间戳：YYYYMMDD-HHmm（跟插件的命名一致）。 */
+function archiveStamp(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}`
+}
+
+/**
+ * 建群时挑一个「建群者」：插件认的发件人必须是 windows.json 里 active、有 session_id 的窗口，
+ * 面板自己不是窗口，所以这里替它挑 —— 优先主窗，其次最近活跃的那个。
+ */
+function pickCreator(registry) {
+  const windows = registry?.windows ?? {}
+  const pool = []
+  for (const [name, entry] of Object.entries(windows)) {
+    if (entry === null || typeof entry !== 'object') continue
+    if (entry.active === false) continue
+    if (!isSafeMemberName(name)) continue
+    const sessionId = textOf(entry.session_id)
+    if (sessionId === '') continue
+    pool.push({ name, sessionId, role: textOf(entry.role), lastSeen: textOf(entry.last_seen) })
+  }
+  if (pool.length === 0) return null
+  const mains = pool.filter((item) => item.role === '主窗')
+  const finalists = mains.length > 0 ? mains : pool
+  finalists.sort((a, b) => (a.lastSeen < b.lastSeen ? 1 : -1))
+  return finalists[0]
+}
+
+/**
+ * 面板里新建一个临时群。creator 由宿主代挑（见 pickCreator），成员只收真实注册过的名字。
+ * @returns {{ id: string, name: string, creator: string, members: string[], note: string }}
+ */
+export async function createGroup(rawName, rawMembers, rawNote) {
+  const name = textOf(rawName).trim()
+  if (name === '') throw new BusPanelError(400, '群名不能为空')
+  if (!GROUP_ID_RE.test(name)) {
+    throw new BusPanelError(400, '群名不合法：只允许中文、字母、数字、-、_，最长 40 个字')
+  }
+
+  const taken = (await scanGroupEntries()).some((entry) => entry.name === name)
+  if (taken) throw new BusPanelError(409, `已经有同名群「${name}」了（含已解散的），换个名字`)
+
+  const registry = await readRegistry()
+  const creator = pickCreator(registry)
+  if (creator === null) {
+    throw new BusPanelError(400, '总线上没有可用的窗口（都退休了）。先让一个窗口 bus_register，再来建群')
+  }
+
+  const members = [creator.name]
+  for (const raw of Array.isArray(rawMembers) ? rawMembers : []) {
+    const member = textOf(raw).trim()
+    if (member === '' || members.includes(member)) continue
+    if (!isSafeMemberName(member)) continue
+    if (activeSessionOf(registry, member) === '') {
+      throw new BusPanelError(400, `「${member}」没在总线上报名（windows.json 里没有），拉不进群`)
+    }
+    members.push(member)
+  }
+
+  const note = textOf(rawNote).trim().slice(0, 120)
+  const meta = {
+    schema_version: 1,
+    name,
+    creator: creator.name,
+    creator_session_id: creator.sessionId,
+    members,
+    created_at: new Date().toISOString(),
+    note,
+    archived: false
+  }
+
+  const dir = resolve(join(GROUPS_DIR, name))
+  if (!isInsideDir(GROUPS_DIR, dir)) throw new BusPanelError(400, '群路径越界')
+  await mkdir(join(dir, 'messages'), { recursive: true })
+  await writeJsonAtomic(join(dir, 'meta.json'), meta)
+
+  return { id: name, name, creator: creator.name, members, note }
+}
+
+/**
+ * 解散群：只有身份可信的建群者能解散（跟插件 bus_group_dissolve 同规矩）。
+ * 只是把目录改名归档，消息一条不删，可以手动改回来。
+ * @returns {{ id: string, from: string }}
+ */
+export async function dissolveGroup(rawGroup) {
+  const entry = await resolveGroupDir(rawGroup)
+  if (entry.archived) throw new BusPanelError(409, '这个群已经解散过了（归档只读）')
+
+  const registry = await readRegistry()
+  const identity = creatorIdentity(entry, registry)
+  if (!identity.allowed) {
+    throw new BusPanelError(403, `只有建群者能解散：${identity.reason}`)
+  }
+
+  let target = resolve(join(GROUPS_DIR, `${entry.name}.archived-${archiveStamp()}`))
+  let attempt = 1
+  while (true) {
+    try {
+      await readdir(target)
+    } catch {
+      break
+    }
+    attempt += 1
+    target = resolve(join(GROUPS_DIR, `${entry.name}.archived-${archiveStamp()}-${attempt}`))
+    if (attempt > 20) throw new BusPanelError(409, '归档目录撞名太多次，先清理一下 groups/')
+  }
+  if (!isInsideDir(GROUPS_DIR, target)) throw new BusPanelError(400, '归档路径越界')
+
+  await rename(entry.dir, target)
+  const meta = { ...(entry.meta ?? {}), archived: true, archived_at: new Date().toISOString() }
+  await writeJsonAtomic(join(target, 'meta.json'), meta)
+
+  return { id: `${entry.name}.archived-${archiveStamp()}`, from: entry.name }
 }
 
 /** 群列表：活跃在前、归档在后，各自按最后活跃时间倒序；带 seenCount/unread。 */
