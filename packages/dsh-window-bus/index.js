@@ -654,17 +654,24 @@ async function deliverMessage(ctx, msg, workPath) {
   if (isArchivedSession(targetId)) {
     // 归档会话跑不了模型步：投进去只会被闸门拦成 blocked，消息白丢。
     // 留在原地，等它解档后由扫描器自然重投。
-    await appendMessage({
-      at: new Date().toISOString(),
-      event: 'held',
-      msg_id: msg.id,
-      from: msg.from,
-      to: msg.to,
-      hops: msg.hops,
-      ok: false,
-      reason: 'target-archived',
-      preview: textOf(msg.text).slice(0, 120)
-    })
+    // 扫描器每 2 秒就会把它捡起来一次：held 只在「刚进积压」或「距上次记录超过 5 分钟」时写一条，
+    // 否则一份积压消息一天能刷出几千条审计，把 messages.jsonl 撑大。
+    const nowMs = Date.now()
+    const lastHeld = typeof msg.last_held_at === 'string' ? Date.parse(msg.last_held_at) : Number.NaN
+    if (!Number.isFinite(lastHeld) || nowMs - lastHeld > 300000) {
+      await appendMessage({
+        at: new Date(nowMs).toISOString(),
+        event: 'held',
+        msg_id: msg.id,
+        from: msg.from,
+        to: msg.to,
+        hops: msg.hops,
+        ok: false,
+        reason: 'target-archived',
+        preview: textOf(msg.text).slice(0, 120)
+      })
+      msg.last_held_at = new Date(nowMs).toISOString()
+    }
     await requeueMessage(msg, workPath, '目标会话已归档，DSH 会拦掉唤醒；等它解档再投', 0)
     return
   }
